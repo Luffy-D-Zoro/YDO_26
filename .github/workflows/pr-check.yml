@@ -1,0 +1,107 @@
+# .github/workflows/pr-check.yml
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Validate PR body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+            const title = context.payload.pull_request.title || "";
+            const errors = [];
+
+            // --- Checklist: all three boxes must be ticked ---
+            const checkboxes = [
+              {
+                pattern: /- \[x\] The PR title starts with/i,
+                label: "PR title checklist item"
+              },
+              {
+                pattern: /- \[x\] "Allow edits from maintainers"/i,
+                label: '"Allow edits from maintainers" checklist item'
+              },
+              {
+                pattern: /- \[x\] The PR is made from a branch/i,
+                label: "Branch name checklist item"
+              }
+            ];
+
+            for (const box of checkboxes) {
+              if (!box.pattern.test(body)) {
+                errors.push(`Unchecked: ${box.label}`);
+              }
+            }
+
+            // --- If checklist is ticked, verify the actual conditions ---
+
+            // Title must start with "Fix #N: " or "Fix part of #N: "
+            if (/- \[x\] The PR title starts with/i.test(body)) {
+              if (!/^Fix( part of)? #\d+:/i.test(title)) {
+                errors.push(
+                  `Title does not match the required format. ` +
+                  `Expected: "Fix #N: ..." or "Fix part of #N: ...". Got: "${title}"`
+                );
+              }
+            }
+
+            // Branch must not be main or master
+            const branch = context.payload.pull_request.head.ref;
+            if (/- \[x\] The PR is made from a branch/i.test(body)) {
+              if (/^(main|master)$/i.test(branch)) {
+                errors.push(`Branch is "${branch}" — PRs must come from a feature branch.`);
+              }
+            }
+
+            // --- Summary must not be empty ---
+            const summaryMatch = body.match(/## Summary\s*([\s\S]*?)(?=##|$)/i);
+            const summary = summaryMatch ? summaryMatch[1].trim() : "";
+            if (!summary || summary.replace(/<!--[\s\S]*?-->/g, "").trim() === "") {
+              errors.push("Summary section is empty.");
+            }
+
+            // --- AI Usage Disclosure must not be empty ---
+            const aiMatch = body.match(/## AI Usage Disclosure\s*([\s\S]*?)(?=##|$)/i);
+            const ai = aiMatch ? aiMatch[1].trim() : "";
+            if (!ai || ai.replace(/<!--[\s\S]*?-->/g, "").trim() === "") {
+              errors.push("AI Usage Disclosure section is empty.");
+            }
+
+            // --- Report ---
+            if (errors.length > 0) {
+              const msg = [
+                "## PR Validation Failed",
+                "",
+                "This PR was closed automatically. Fix the following and reopen:",
+                "",
+                ...errors.map(e => `- ${e}`),
+                "",
+                "_Reopen the PR once the issues above are resolved._"
+              ].join("\n");
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: msg
+              });
+
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                state: "closed"
+              });
+
+              core.setFailed("PR validation failed.");
+            }
