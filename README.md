@@ -1,36 +1,26 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# You Deserve One (YDO)
 
-## Getting Started
+## Project Overview
+You Deserve One (YDO) is a highly secure application designed exclusively for IIITDMJ students. The platform allows users to anonymously submit up to 3 crushes. On February 14th at 00:00, mutual matches are revealed.
 
-First, run the development server:
+**The Anonymity Guarantee:** The database, the developers, and the server infrastructure will never have the mathematical ability to see who a user liked or who matched with whom. Matches are calculated via cryptographic collision.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Tech Stack
+* **Frontend:** Next.js 
+* **Backend & DB:** Supabase 
+* **Authentication:** Supabase Auth
+* **Cryptography:**
+  * `ethers.js`
+  * `crypto-js`
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Contributing
+We welcome contributions through the BSoC Contributor Guidelines! Development tasks are strictly divided into three core domains:
+1. Frontend Development
+2. Core Logic & Cryptography
+3. Infrastructure & Database
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Please see our **[CONTRIBUTING.md](CONTRIBUTING.md)** for getting started.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Maintainers
+* Sampath
+* Arunit
