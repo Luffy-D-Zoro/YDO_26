@@ -81,6 +81,12 @@ jobs:
               UNKNOWN: "UNKNOWN",
             };
 
+            const MAINTAINER_AUTHOR_ASSOCIATIONS = new Set([
+              "OWNER",
+              "MEMBER",
+              "COLLABORATOR",
+            ]);
+
             // Repository identity from the workflow context.
             const owner = context.repo.owner ; 
             const repo = context.repo.repo ; 
@@ -88,6 +94,19 @@ jobs:
             //Date calculation helper
             function daysSince(date){
               return (dateNow - new Date(date).getTime())/MS_PER_DAY;
+            }
+
+
+            function isMaintainerLikeActivity(authorLogin, authorAssociation, assigneeLogin) {
+              if (!authorLogin || authorLogin === assigneeLogin) {
+                return false;
+              }
+
+              if (authorLogin.endsWith("[bot]")) {
+                return false;
+              }
+
+              return MAINTAINER_AUTHOR_ASSOCIATIONS.has(authorAssociation);
             }
 
             // Post the first warning and include the hidden marker for this assignee.
@@ -265,6 +284,7 @@ jobs:
                 per_page : 100 
               });
             }
+
             // Parse Fixes/Closes/Resolves/Part of references and return issue numbers as Numbers.
             function extractReferencedIssueNumbers(prBody){
                 const referencedIssueNumbers = new Set();
@@ -351,8 +371,15 @@ jobs:
               let latestDate = null;
 
               for (const review of pullRequest.reviews.nodes) {
-                if (!review.author || review.author.login === assigneeLogin ) continue;
-
+                if (
+                  !isMaintainerLikeActivity(
+                    review.author?.login,
+                    review.authorAssociation,
+                    assigneeLogin
+                  )
+                ) {
+                  continue;
+                }
                 if (review.state !== "CHANGES_REQUESTED" && review.state !== "COMMENTED") {
                   continue;
                 }
@@ -363,8 +390,15 @@ jobs:
               }
 
               for (const comment of pullRequest.comments.nodes) {
-                if (!comment.author || comment.author.login === assigneeLogin || comment.author.login.endsWith("[bot]")) continue;
-
+                if (
+                  !isMaintainerLikeActivity(
+                    comment.author?.login,
+                    comment.authorAssociation,
+                    assigneeLogin
+                  )
+                ) {
+                  continue;
+                }
                 if (!latestDate || isAfter(comment.createdAt, latestDate)) {
                   latestDate = comment.createdAt;
                 }
@@ -389,15 +423,24 @@ jobs:
                 return latestCommentAt;
             }
 
+            // Find latest Non Assignee Review Comment Date 
             function getLatestNonAssigneeReviewCommentAt(reviewCommentMap, assigneeLogin) {
               let latestDate = null;
 
-              for (const [login, dates] of reviewCommentMap) {
-                if (login === assigneeLogin) continue;
+              for (const [login, comments] of reviewCommentMap) {
+                for (const comment of comments) {
+                  if (
+                    !isMaintainerLikeActivity(
+                      login,
+                      comment.authorAssociation,
+                      assigneeLogin
+                    )
+                  ) {
+                    continue;
+                  }
 
-                for (const date of dates) {
-                  if (!latestDate || isAfter(date, latestDate)) {
-                    latestDate = date;
+                  if (!latestDate || isAfter(comment.createdAt, latestDate)) {
+                    latestDate = comment.createdAt;
                   }
                 }
               }
@@ -433,12 +476,14 @@ jobs:
                     if(!reviewComment.user || !reviewComment.user.login)continue;
                     const assigneeLogin = reviewComment.user.login;
                     const createdAt = reviewComment.created_at;
-                    if(!reviewCommentMap.get(assigneeLogin)){
-                        reviewCommentMap.set(assigneeLogin,new Set().add(createdAt));
+                    if (!reviewCommentMap.has(assigneeLogin)) {
+                      reviewCommentMap.set(assigneeLogin, []);
                     }
-                    else{
-                        reviewCommentMap.get(assigneeLogin).add(createdAt);
-                    }
+                    reviewCommentMap.get(assigneeLogin).push({
+                    createdAt: reviewComment.created_at,
+                    authorAssociation: reviewComment.author_association,
+                  });
+
                 }
                 return reviewCommentMap;
             }
@@ -448,13 +493,14 @@ jobs:
                 if(!assigneeReviewCommentDateSet){
                     return false;
                 }
-                for(const reviewCommentDate of assigneeReviewCommentDateSet){
-                    if(isAfter(reviewCommentDate,referencedDate)){
+                for(const reviewComment of assigneeReviewCommentDateSet){
+                    if(isAfter(reviewComment.createdAt,referencedDate)){
                         return true;
                     }
                 }
                 return false;
             }
+
             // Closed-but-unmerged PRs are not instantly stale.
             // Use closedAt as the reference point and look for assignee response after closure.
             async function getClosedPrStatus(pullRequest, pullNumber, assigneeLogin) {
@@ -473,9 +519,12 @@ jobs:
               const assigneeReviewCommentDates = reviewCommentMap.get(assigneeLogin);
 
               if (assigneeReviewCommentDates){
-                for (const date of assigneeReviewCommentDates){
-                  if (!latestAssigneeReviewCommentAt || isAfter(date,latestAssigneeReviewCommentAt)) {
-                    latestAssigneeReviewCommentAt = date;
+                for (const reviewComment of assigneeReviewCommentDates){
+                  if (
+                    !latestAssigneeReviewCommentAt ||
+                    isAfter(reviewComment.createdAt, latestAssigneeReviewCommentAt)
+                  ) {
+                    latestAssigneeReviewCommentAt = reviewComment.createdAt;
                   }
                 }
               }
@@ -498,6 +547,7 @@ jobs:
 
             // Inspect one linked PR and classify whether it keeps the assignee active.
             // Conservative failures return UNKNOWN, which prevents accidental unassignment.
+
             async function inspectSinglePrActivity(pullNumber,assigneeLogin,prActivityStatusCache){
                 const cacheKey = prActivityCacheKeyMacro(pullNumber,assigneeLogin);
                 if(prActivityStatusCache.has(cacheKey)){
@@ -722,6 +772,7 @@ jobs:
                                 reviews(last : 100){
                                     nodes{
                                         createdAt
+                                        authorAssociation
                                         author{
                                             login
                                         }
@@ -739,6 +790,7 @@ jobs:
                                 comments(last : 100){
                                     nodes {
                                         createdAt
+                                        authorAssociation
                                         author{
                                             login
                                         }
@@ -829,7 +881,9 @@ jobs:
             const prActivityStatusCache = new Map();
 
 
+            
             // Main issue loop: each labelled issue is evaluated independently.
+            
             for (const issue of issues){
               if(issue.pull_request){
                 continue;
